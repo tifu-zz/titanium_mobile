@@ -451,7 +451,7 @@
 	
 	/* Image handling */
 	if ([value isKindOfClass:[UIImage class]]) {
-		value = UIImageJPEGRepresentation(value, 1.0);
+		value = UIImageJPEGRepresentation(value, .5);
 	}
 	
     /* Data */
