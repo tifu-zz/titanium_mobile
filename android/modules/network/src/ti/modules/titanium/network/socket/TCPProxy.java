@@ -41,10 +41,10 @@ public class TCPProxy extends KrollProxy implements TiStream
 	private static final boolean DBG = TiConfig.LOGD;
 
 	private boolean initialized = false;
-	private Socket clientSocket;
-	private ServerSocket serverSocket;
-	private boolean accepting;
-	private KrollDict acceptOptions;
+	private Socket clientSocket = null;
+	private ServerSocket serverSocket = null;
+	private boolean accepting = false;
+	private KrollDict acceptOptions = null;
 
 
 	public TCPProxy(TiContext context)
@@ -54,7 +54,7 @@ public class TCPProxy extends KrollProxy implements TiStream
 	}
 
 	@Kroll.method
-	public void connect() throws Exception
+	public void connect()
 	{
 		Object host = getProperty("host");
 		Object port = getProperty("port");
@@ -63,7 +63,7 @@ public class TCPProxy extends KrollProxy implements TiStream
 			new ConnectedSocketThread().start();
 
 		} else {
-			throw new Exception("unable to call connect, socket must have a valid host and port");
+			throw new IllegalArgumentException("unable to call connect, socket must have a valid host and port");
 		}
 	}
 
@@ -71,37 +71,33 @@ public class TCPProxy extends KrollProxy implements TiStream
 	public void listen() throws Exception
 	{
 		Object port = getProperty("port");
-		if(port != null) {
-			initialized = true;
+		Object listenQueueSize = getProperty("listenQueueSize");
 
-			try {
-				Object listenQueueSize = getProperty("listenQueueSize");
-				if(listenQueueSize != null) {
-					serverSocket = new ServerSocket(TiConvert.toInt(port), TiConvert.toInt(listenQueueSize));
+		try {
+			if ((port != null) && (listenQueueSize != null)) {
+				serverSocket = new ServerSocket(TiConvert.toInt(port), TiConvert.toInt(listenQueueSize));
 
-				} else {
-					serverSocket = new ServerSocket(TiConvert.toInt(port));
-				}
+			} else if (port != null) {
+				serverSocket = new ServerSocket(TiConvert.toInt(port));
 
-				new ListeningSocketThread().start();
-				state = SOCKET_LISTENING;
-
-			} catch (IOException e) {
-				e.printStackTrace();
-				throw new Exception("Unable to listen, IO error");
+			} else {
+				serverSocket = new ServerSocket();
 			}
 
-		} else {
-			throw new Exception("unable to call listen, socket must have a valid port");
+			new ListeningSocketThread().start();
+			state = SOCKET_LISTENING;
+
+		} catch (IOException e) {
+			e.printStackTrace();
+			throw new Exception("Unable to listen, IO error");
 		}
 	}
 
 	@Kroll.method
-	public void accept(KrollDict acceptOptions)
+	public void accept(KrollDict acceptOptions) throws Exception
 	{
-		if(!initialized) {
-			Log.e(LCAT, "Socket is not initialized, unable to call accept");
-			return;
+		if(state != SOCKET_LISTENING) {
+			throw new Exception("Socket is not initialized, unable to call accept");
 		}
 
 		this.acceptOptions = acceptOptions;
@@ -109,20 +105,30 @@ public class TCPProxy extends KrollProxy implements TiStream
 	}
 
 	@Kroll.method
-	public void close()
+	public void close() throws Exception
 	{
-		if(!initialized) {
-			Log.e(LCAT, "Socket is not initialized, unable to call close");
-			return;
+		if((state != SOCKET_CONNECTED) && (state != SOCKET_LISTENING)) {
+			throw new Exception("Socket is not initialized, unable to call close");
 		}
 
 		try {
-			clientSocket.close();
-			updateState(SOCKET_CLOSED, "closed", buildClosedCallbackArgs());
+			closeSocket();
 
 		} catch (IOException e) {
 			e.printStackTrace();
 			updateState(SOCKET_ERROR, "error", buildErrorCallbackArgs("Unable to close socket, IO error", 0));
+		}
+	}
+
+	private void closeSocket() throws IOException {
+		if (clientSocket != null) {
+			clientSocket.close();
+			clientSocket = null;
+		}
+
+		if (serverSocket != null) {
+			serverSocket.close();
+			serverSocket = null;
 		}
 	}
 
@@ -170,12 +176,6 @@ public class TCPProxy extends KrollProxy implements TiStream
 	}
 
 	@Kroll.setProperty @Kroll.method
-	public void setClosed(KrollCallback closed)
-	{
-		setSocketProperty("closed", closed);
-	}
-
-	@Kroll.setProperty @Kroll.method
 	public void setAccepted(KrollCallback accepted)
 	{
 		setSocketProperty("accepted", accepted);
@@ -212,7 +212,7 @@ public class TCPProxy extends KrollProxy implements TiStream
 
 			} catch (IOException e) {
 				e.printStackTrace();
-				updateState(SOCKET_ERROR, "error", buildErrorCallbackArgs("Unable to connect to , IO error", 0));
+				updateState(SOCKET_ERROR, "error", buildErrorCallbackArgs("Unable to connect, IO error", 0));
 			}
 		}
 	}
@@ -288,14 +288,6 @@ public class TCPProxy extends KrollProxy implements TiStream
 		return callbackArgs;
 	}
 
-	private KrollDict buildClosedCallbackArgs()
-	{
-		KrollDict callbackArgs = new KrollDict();
-		callbackArgs.put("socket", this);
-
-		return callbackArgs;
-	}
-
 	private KrollDict buildAcceptedCallbackArgs(TCPProxy acceptedTcpProxy)
 	{
 		KrollDict callbackArgs = new KrollDict();
@@ -328,53 +320,99 @@ public class TCPProxy extends KrollProxy implements TiStream
 
 	// TiStream interface methods
 	@Kroll.method
-	public int read(BufferProxy bufferProxy) throws IOException
+	public int read(Object args[]) throws IOException
 	{
-		try{
-			return TiStreamHelper.read(clientSocket.getInputStream(), bufferProxy);
+		BufferProxy bufferProxy = null;
+		int offset = 0;
+		int length = 0;
 
-		} catch (IOException e) {
-			e.printStackTrace();
-			clientSocket.close();
-			throw new IOException("Unable to read from socket, IO error");
+		if(args.length == 1 || args.length == 3) {
+			if(args.length == 1) {
+				if(args[0] instanceof BufferProxy) {
+					bufferProxy = (BufferProxy) args[0];
+					length = bufferProxy.getLength();
+
+				} else {
+					throw new IllegalArgumentException("Invalid buffer argument");
+				}
+			}
+
+			if(args.length == 3) {
+				if(args[1] instanceof Double) {
+					offset = ((Double)args[1]).intValue();
+
+				} else{
+					throw new IllegalArgumentException("Invalid offset argument");
+				}
+
+				if(args[2] instanceof Double) {
+					length = ((Double)args[2]).intValue();
+
+				} else {
+					throw new IllegalArgumentException("Invalid length argument");
+				}
+			}
+
+		} else {
+			throw new IllegalArgumentException("Invalid number of arguments");
 		}
-	}
 
-	@Kroll.method
-	public int read(BufferProxy bufferProxy, int offset, int length) throws IOException
-	{
 		try {
 			return TiStreamHelper.read(clientSocket.getInputStream(), bufferProxy, offset, length);
 
 		} catch (IOException e) {
 			e.printStackTrace();
-			clientSocket.close();
+			closeSocket();
+			updateState(SOCKET_ERROR, "error", buildErrorCallbackArgs("Unable to read from socket, IO error", 0));
 			throw new IOException("Unable to read from socket, IO error");
 		}
 	}
 
 	@Kroll.method
-	public int write(BufferProxy bufferProxy) throws IOException
+	public int write(Object args[]) throws IOException
 	{
-		try {
-			return TiStreamHelper.write(clientSocket.getOutputStream(), bufferProxy);
+		BufferProxy bufferProxy = null;
+		int offset = 0;
+		int length = 0;
 
-		} catch (IOException e) {
-			e.printStackTrace();
-			clientSocket.close();
-			throw new IOException("Unable to write to socket, IO error");
+		if(args.length == 1 || args.length == 3) {
+			if(args.length == 1) {
+				if(args[0] instanceof BufferProxy) {
+					bufferProxy = (BufferProxy) args[0];
+					length = bufferProxy.getLength();
+
+				} else {
+					throw new IllegalArgumentException("Invalid buffer argument");
+				}
+			}
+
+			if(args.length == 3) {
+				if(args[1] instanceof Double) {
+					offset = ((Double)args[1]).intValue();
+
+				} else{
+					throw new IllegalArgumentException("Invalid offset argument");
+				}
+
+				if(args[2] instanceof Double) {
+					length = ((Double)args[2]).intValue();
+
+				} else {
+					throw new IllegalArgumentException("Invalid length argument");
+				}
+			}
+
+		} else {
+			throw new IllegalArgumentException("Invalid number of arguments");
 		}
-	}
 
-	@Kroll.method
-	public int write(BufferProxy bufferProxy, int offset, int length) throws IOException
-	{
 		try {
 			return TiStreamHelper.write(clientSocket.getOutputStream(), bufferProxy, offset, length);
 
 		} catch (IOException e) {
 			e.printStackTrace();
-			clientSocket.close();
+			closeSocket();
+			updateState(SOCKET_ERROR, "error", buildErrorCallbackArgs("Unable to write to socket, IO error", 0));
 			throw new IOException("Unable to write to socket, IO error");
 		}
 	}
