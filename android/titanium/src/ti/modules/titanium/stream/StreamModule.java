@@ -5,7 +5,7 @@
  * Please see the LICENSE included with this distribution for details.
  */
 
-package org.appcelerator.titanium.io;
+package ti.modules.titanium.stream;
 
 import java.io.IOException;
 
@@ -13,18 +13,24 @@ import org.appcelerator.kroll.KrollDict;
 import org.appcelerator.kroll.KrollModule;
 import org.appcelerator.kroll.KrollProxy;
 import org.appcelerator.kroll.annotations.Kroll;
-import org.appcelerator.titanium.BlobStream;
 import org.appcelerator.titanium.TiBlob;
 import org.appcelerator.titanium.TiContext;
+import org.appcelerator.titanium.io.TiStream;
 import org.appcelerator.titanium.kroll.KrollCallback;
-import org.appcelerator.titanium.proxy.BufferProxy;
-import org.appcelerator.titanium.proxy.BufferStream;
 import org.appcelerator.titanium.util.TiConfig;
 
+import ti.modules.titanium.BufferProxy;
+import ti.modules.titanium.TitaniumModule;
 
-@Kroll.module
+
+@Kroll.module(parentModule=TitaniumModule.class)
 public class StreamModule extends KrollModule
 {
+	@Kroll.constant public static final int MODE_READ = 0;
+	@Kroll.constant public static final int MODE_WRITE = 1;
+	@Kroll.constant public static final int MODE_APPEND = 2;
+
+
 	private static final String LCAT = "StreamModule";
 	private static final boolean DBG = TiConfig.LOGD;
 
@@ -35,13 +41,26 @@ public class StreamModule extends KrollModule
 	}
 
 	@Kroll.method
-	public Object createStream(Object container)
+	public Object createStream(KrollDict params)
+	//public Object createStream(Object container)
 	{
-		if (container instanceof TiBlob) {
-			return new BlobStream((TiBlob) container);
+		Object source = params.get("source");
 
-		} else if(container instanceof BufferProxy) {
-			return new BufferStream((BufferProxy) container);
+		Object rawMode = params.get("mode");
+		if (!(rawMode instanceof Double)) {
+			throw new IllegalArgumentException("Unable to create stream, invalid mode");
+		}
+		int mode = ((Double)rawMode).intValue();
+		
+		if (source instanceof TiBlob) {
+			if(mode != MODE_READ) {
+				throw new IllegalArgumentException("Unable to create a blob stream in a mode other than read");
+			}
+
+			return new BlobStreamProxy((TiBlob) source);
+
+		} else if(source instanceof BufferProxy) {
+			return new BufferStreamProxy((BufferProxy) source, mode);
 
 		} else {
 			throw new IllegalArgumentException("Unable to create a stream for the specified argument");
@@ -120,7 +139,7 @@ public class StreamModule extends KrollModule
 			public void run()
 			{
 				int bytesRead = -1;
-				String errorState = "";
+				int errorState = 0;
 				String errorDescription = "";
 
 				try {
@@ -129,7 +148,7 @@ public class StreamModule extends KrollModule
 
 				} catch (IOException e) {
 					e.printStackTrace();
-					errorState = "error";
+					errorState = 1;
 					errorDescription = e.getMessage();
 				}
 
@@ -192,7 +211,7 @@ public class StreamModule extends KrollModule
 				public void run()
 				{
 					int offset = 0;
-					String errorState = "";
+					int errorState = 0;
 					String errorDescription = "";
 
 					if(fbuffer.getLength() < 1024) {
@@ -203,7 +222,7 @@ public class StreamModule extends KrollModule
 						readAll(fsourceStream, fbuffer, offset);
 
 					} catch (IOException e) {
-						errorState = "error";
+						errorState = 1;
 						errorDescription = e.getMessage();
 					}
 
@@ -217,15 +236,20 @@ public class StreamModule extends KrollModule
 
 	private void readAll(TiStream sourceStream, BufferProxy buffer, int offset) throws IOException
 	{
+		int totalBytesRead = 0;
+
 		while(true) {
 			int bytesRead = sourceStream.read(new Object[] {buffer, offset, 1024});
 			if(bytesRead == -1) {
 				break;
 			}
 
-			buffer.resize(bytesRead);
+			totalBytesRead += bytesRead;
+			buffer.resize(1024 + totalBytesRead);
 			offset += bytesRead;
 		}
+
+		buffer.resize(totalBytesRead);
 	}
 
 	@Kroll.method
@@ -302,7 +326,7 @@ public class StreamModule extends KrollModule
 					public void run()
 					{
 						int bytesWritten = -1;
-						String errorState = "";
+						int errorState = 0;
 						String errorDescription = "";
 
 						try {
@@ -310,7 +334,7 @@ public class StreamModule extends KrollModule
 
 						} catch (IOException e) {
 							e.printStackTrace();
-							errorState = "error";
+							errorState = 1;
 							errorDescription = e.getMessage();
 						}
 
@@ -323,7 +347,7 @@ public class StreamModule extends KrollModule
 	@Kroll.method
 	//public void writeStream(TiStream inputStream, TiStream outputStream, int maxChunkSize) throws IOException
 	//public void writeStream(TiStream inputStream, TiStream outputStream, int maxChunkSize, KrollCallback resultsCallback)
-	public void writeStream(Object args[]) throws IOException
+	public int writeStream(Object args[]) throws IOException
 	{
 		TiStream inputStream = null;
 		TiStream outputStream = null;
@@ -366,7 +390,7 @@ public class StreamModule extends KrollModule
 		}
 
 		if (args.length == 3) {
-			writeStream(inputStream, outputStream, maxChunkSize);
+			return writeStream(inputStream, outputStream, maxChunkSize);
 
 		} else {
 			final TiStream finputStream = inputStream;
@@ -378,20 +402,22 @@ public class StreamModule extends KrollModule
 				public void run()
 				{
 					int totalBytesWritten = 0;
-					String errorState = "";
+					int errorState = 0;
 					String errorDescription = "";
 
 					try {
 						totalBytesWritten = writeStream(finputStream, foutputStream, fmaxChunkSize);
 
 					} catch (IOException e) {
-						errorState = "error";
+						errorState = 1;
 						errorDescription = e.getMessage();
 					}
 
 					fresultsCallback.callAsync(buildWriteStreamCallbackArgs(finputStream, foutputStream, totalBytesWritten, errorState, errorDescription));
 				}
 			}) {}.start();
+
+			return 0;
 		}
 	}
 
@@ -401,12 +427,12 @@ public class StreamModule extends KrollModule
 		int totalBytesWritten = 0;
 
 		while(true) {
-			int bytesWritten = inputStream.read(new Object[] {buffer, 0, maxChunkSize});
-			if(bytesWritten == -1) {
+			int bytesRead = inputStream.read(new Object[] {buffer, 0, maxChunkSize});
+			if(bytesRead == -1) {
 				break;
 			}
 
-			outputStream.write(new Object[] {buffer});
+			int bytesWritten = outputStream.write(new Object[] {buffer, 0, bytesRead});
 			totalBytesWritten += bytesWritten;
 			buffer.clear();
 		}
@@ -482,32 +508,41 @@ public class StreamModule extends KrollModule
 
 	private void pump(TiStream inputStream, KrollCallback handler, int maxChunkSize)
 	{
-		BufferProxy buffer = new BufferProxy(getTiContext(), maxChunkSize);
-		int totalBytesWritten = 0;
-		String errorState = "";
+		int totalBytesRead = 0;
+		int errorState = 0;
 		String errorDescription = "";
 
 		try {
 			while(true) {
-				int bytesWritten = inputStream.read(new Object[] {buffer, 0, maxChunkSize});
-				if(bytesWritten == -1) {
-					break;
+				BufferProxy buffer = new BufferProxy(getTiContext(), maxChunkSize);
+				int bytesRead = inputStream.read(new Object[] {buffer, 0, maxChunkSize});
+				if(bytesRead != -1) {
+					totalBytesRead += bytesRead;
 				}
 
-				totalBytesWritten += bytesWritten;
+				if (bytesRead != buffer.getLength()) {
+					if (bytesRead == -1) {
+						buffer.resize(0);
+					} else {
+						buffer.resize(bytesRead);
+					}
+				}
+				handler.callSync(buildPumpCallbackArgs(inputStream, buffer, bytesRead, totalBytesRead, errorState, errorDescription));
+				buffer = null;
 
-				handler.callAsync(buildPumpCallbackArgs(inputStream, buffer, bytesWritten, totalBytesWritten, errorState, errorDescription));
-				buffer.clear();
+				if (bytesRead == -1) {
+					break;
+				}
 			}
 
 		} catch (IOException e) {
-			errorState = "error";
+			errorState = 1;
 			errorDescription = e.getMessage();
-			handler.callAsync(buildPumpCallbackArgs(inputStream, buffer, 0, totalBytesWritten, errorState, errorDescription));
+			handler.callSync(buildPumpCallbackArgs(inputStream, new BufferProxy(getTiContext()), 0, totalBytesRead, errorState, errorDescription));
 		}
 	}
 
-	private KrollDict buildRWCallbackArgs(TiStream sourceStream, int bytesProcessed, String errorState, String errorDescription)
+	private KrollDict buildRWCallbackArgs(TiStream sourceStream, int bytesProcessed, int errorState, String errorDescription)
 	{
 		KrollDict callbackArgs = new KrollDict();
 		callbackArgs.put("source", sourceStream);
@@ -518,7 +553,7 @@ public class StreamModule extends KrollModule
 		return callbackArgs;
 	}
 
-	private KrollDict buildWriteStreamCallbackArgs(TiStream fromStream, TiStream toStream, int bytesProcessed, String errorState, String errorDescription)
+	private KrollDict buildWriteStreamCallbackArgs(TiStream fromStream, TiStream toStream, int bytesProcessed, int errorState, String errorDescription)
 	{
 		KrollDict callbackArgs = new KrollDict();
 		callbackArgs.put("fromStream", fromStream);
@@ -530,7 +565,7 @@ public class StreamModule extends KrollModule
 		return callbackArgs;
 	}
 
-	private KrollDict buildPumpCallbackArgs(TiStream sourceStream, BufferProxy buffer, int bytesProcessed, int totalBytesProcessed, String errorState, String errorDescription)
+	private KrollDict buildPumpCallbackArgs(TiStream sourceStream, BufferProxy buffer, int bytesProcessed, int totalBytesProcessed, int errorState, String errorDescription)
 	{
 		KrollDict callbackArgs = new KrollDict();
 		callbackArgs.put("source", sourceStream);

@@ -79,6 +79,11 @@ public abstract class TiBaseActivity extends Activity
 		return (TiApplication) getApplication();
 	}
 
+	public TiWindowProxy getWindowProxy()
+	{
+		return this.window;
+	}
+
 	public void setWindowProxy(TiWindowProxy proxy)
 	{
 		this.window = proxy;
@@ -259,6 +264,7 @@ public abstract class TiBaseActivity extends Activity
 	@Override
 	protected void onCreate(Bundle savedInstanceState)
 	{
+		getTiApp().setCurrentActivity(this, this);
 		messageQueue = TiMessageQueue.getMessageQueue();
 		if (DBG) {
 			Log.d(TAG, "Activity " + this + " onCreate");
@@ -285,7 +291,6 @@ public abstract class TiBaseActivity extends Activity
 		layout = createLayout();
 		super.onCreate(savedInstanceState);
 		getTiApp().setWindowHandler(this);
-		getTiApp().setCurrentActivity(this, this);
 		windowCreated();
 
 		if (activityProxy != null) {
@@ -493,12 +498,12 @@ public abstract class TiBaseActivity extends Activity
 					if (degrees > 350 || degrees < 10) {
 						// set portrait
 						newOrientation = 1;
-					} else if ((degrees > 80 || degrees < 100) && VERSION.SDK_INT == 9) {
+					} else if ((degrees > 80 && degrees < 100) && VERSION.SDK_INT == 9) {
 						// set reverse landscape
-						newOrientation = 8;
-					} else if ((degrees > 170 || degrees < 190) && VERSION.SDK_INT == 9) {
+						// newOrientation = 8;
+					} else if ((degrees > 170 && degrees < 190) && VERSION.SDK_INT == 9) {
 						// set reverse portrait
-						newOrientation = 9;
+						// newOrientation = 9;
 					} else if (degrees > 260 && degrees < 280) {
 						// set landscape
 						newOrientation = 0;

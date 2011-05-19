@@ -5,32 +5,37 @@
  * Please see the LICENSE included with this distribution for details.
  */
 
-package org.appcelerator.titanium;
+package ti.modules.titanium.stream;
 
 import java.io.IOException;
 import java.io.InputStream;
 
 import org.appcelerator.kroll.KrollProxy;
 import org.appcelerator.kroll.annotations.Kroll;
+import org.appcelerator.titanium.TiBlob;
 import org.appcelerator.titanium.io.TiStream;
-import org.appcelerator.titanium.proxy.BufferProxy;
 import org.appcelerator.titanium.util.TiConfig;
 import org.appcelerator.titanium.util.TiStreamHelper;
 
+import ti.modules.titanium.BufferProxy;
+
 
 @Kroll.proxy
-public class BlobStream extends KrollProxy implements TiStream
+public class BlobStreamProxy extends KrollProxy implements TiStream
 {
 	private static final String LCAT = "BlobStream";
 	private static final boolean DBG = TiConfig.LOGD;
 
 	private TiBlob tiBlob;
+	private InputStream inputStream = null;
+	private boolean isOpen = false;
 
 
-	public BlobStream(TiBlob tiBlob)
+	public BlobStreamProxy(TiBlob tiBlob)
 	{
 		super(tiBlob.getTiContext());
 		this.tiBlob = tiBlob;
+		isOpen = true;
 	}
 
 
@@ -38,12 +43,16 @@ public class BlobStream extends KrollProxy implements TiStream
 	@Kroll.method
 	public int read(Object args[]) throws IOException
 	{
+		if (!isOpen) {
+			throw new IOException("Unable to read from blob, not open");
+		}
+
 		BufferProxy bufferProxy = null;
 		int offset = 0;
 		int length = 0;
 
 		if(args.length == 1 || args.length == 3) {
-			if(args.length == 1) {
+			if(args.length > 0) {
 				if(args[0] instanceof BufferProxy) {
 					bufferProxy = (BufferProxy) args[0];
 					length = bufferProxy.getLength();
@@ -54,14 +63,20 @@ public class BlobStream extends KrollProxy implements TiStream
 			}
 
 			if(args.length == 3) {
-				if(args[1] instanceof Double) {
+				if(args[1] instanceof Integer) {
+					offset = ((Integer)args[1]).intValue();
+
+				} else if(args[1] instanceof Double) {
 					offset = ((Double)args[1]).intValue();
 
-				} else{
+				} else {
 					throw new IllegalArgumentException("Invalid offset argument");
 				}
 
-				if(args[2] instanceof Double) {
+				if(args[2] instanceof Integer) {
+					length = ((Integer)args[2]).intValue();
+
+				} else if(args[2] instanceof Double) {
 					length = ((Double)args[2]).intValue();
 
 				} else {
@@ -73,12 +88,22 @@ public class BlobStream extends KrollProxy implements TiStream
 			throw new IllegalArgumentException("Invalid number of arguments");
 		}
 
-		InputStream inputStream = tiBlob.getInputStream();
+		if (inputStream == null) {
+			inputStream = tiBlob.getInputStream();
+			// TODO set position based on mode
+		}
+
 		if(inputStream != null) {
-			return TiStreamHelper.read(inputStream, bufferProxy, offset, length);
+			try {
+				return TiStreamHelper.read(inputStream, bufferProxy, offset, length);
+
+			} catch (IOException e) {
+				e.printStackTrace();
+				throw new IOException("Unable to read from blob, IO error");
+			}
 
 		} else {
-			throw new IOException("Unable to read from blob, IO error");
+			throw new IOException("Unable to read from blob, input stream is null");
 		}
 	}
 
@@ -89,7 +114,7 @@ public class BlobStream extends KrollProxy implements TiStream
 	}
 
 	@Kroll.method
-	public boolean isWriteable()
+	public boolean isWritable()
 	{
 		return false;
 	}
@@ -98,6 +123,14 @@ public class BlobStream extends KrollProxy implements TiStream
 	public boolean isReadable()
 	{
 		return true;
+	}
+
+	@Kroll.method
+	public void close() throws IOException
+	{
+		tiBlob = null;
+		inputStream.close();
+		isOpen = false;
 	}
 }
 

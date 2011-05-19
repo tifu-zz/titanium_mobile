@@ -12,7 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-import org.appcelerator.titanium.proxy.BufferProxy;
+import ti.modules.titanium.BufferProxy;
 
 
 public class TiStreamHelper
@@ -23,27 +23,19 @@ public class TiStreamHelper
 	public static final int DEFAULT_BUFFER_SIZE = 1024;
 
 
-	public static int read(InputStream inputStream, BufferProxy bufferProxy, int offset, int length)
+	public static int read(InputStream inputStream, BufferProxy bufferProxy, int offset, int length) throws IOException
 	{
 		byte[] buffer = bufferProxy.getBuffer();
-		int bytesRead = -1;
 
 		if((offset + length) > buffer.length)
 		{
 			length = buffer.length - offset;
 		}
 
-		try {
-			bytesRead = inputStream.read(buffer, offset, length);
-
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-
-		return bytesRead;
+		return inputStream.read(buffer, offset, length);
 	}
 
-	public static int write(OutputStream outputStream, BufferProxy bufferProxy, int offset, int length)
+	public static int write(OutputStream outputStream, BufferProxy bufferProxy, int offset, int length) throws IOException
 	{
 		byte[] buffer = bufferProxy.getBuffer();
 
@@ -52,13 +44,8 @@ public class TiStreamHelper
 			length = buffer.length - offset;
 		}
 
-		try {
-			outputStream.write(buffer, offset, length);
-			outputStream.flush();
-
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
+		outputStream.write(buffer, offset, length);
+		outputStream.flush();
 
 		return length;
 	}
@@ -85,10 +72,15 @@ public class TiStreamHelper
 		}
 	}
 
-	public static String toString(InputStream in)
+	public static byte[] toByteArray(InputStream in)
 	{
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
 		pump(in, out);
-		return new String(out.toByteArray());
+		return out.toByteArray();
+	}
+
+	public static String toString(InputStream in)
+	{
+		return new String(toByteArray(in));
 	}
 }

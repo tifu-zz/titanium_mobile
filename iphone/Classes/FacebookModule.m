@@ -473,7 +473,7 @@
 	KrollCallback* callback = [args objectAtIndex:2];
 	
 	NSString *httpMethod = @"GET";
-	NSString* changedHttpMethod = [self convertBlobParams:params];
+	NSString* changedHttpMethod = [self convertParams:params];
 	if (changedHttpMethod != nil) {
 		httpMethod = changedHttpMethod;
 	}
@@ -504,7 +504,7 @@
 	NSMutableDictionary* params = [args objectAtIndex:1];
 	KrollCallback* callback = [args objectAtIndex:2];
 	
-	[self convertBlobParams:params];
+	[self convertParams:params];
 	
 	TiFacebookDialogRequest *delegate = [[[TiFacebookDialogRequest alloc] initWithCallback:callback module:self] autorelease];
 	[facebook dialog:action andParams:params andDelegate:delegate];
@@ -520,7 +520,7 @@
  */
 -(id)createLoginButton:(id)args
 {
-	return [[[TiFacebookLoginButtonProxy alloc] _initWithPageContext:[self pageContext] args:args module:self] autorelease];
+	return [[[TiFacebookLoginButtonProxy alloc] _initWithPageContext:[self executionContext] args:args module:self] autorelease];
 }
 
 #pragma mark Listener work

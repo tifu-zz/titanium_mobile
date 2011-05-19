@@ -1,3 +1,9 @@
+/**
+ * Appcelerator Titanium Mobile
+ * Copyright (c) 2011 by Appcelerator, Inc. All Rights Reserved.
+ * Licensed under the terms of the Apache Public License
+ * Please see the LICENSE included with this distribution for details.
+ */
 package ti.modules.titanium.codec;
 
 import java.io.UnsupportedEncodingException;
@@ -9,11 +15,11 @@ import org.appcelerator.kroll.KrollProxy;
 import org.appcelerator.kroll.annotations.Kroll;
 import org.appcelerator.titanium.TiC;
 import org.appcelerator.titanium.TiContext;
-import org.appcelerator.titanium.proxy.BufferProxy;
 import org.appcelerator.titanium.util.Log;
 import org.appcelerator.titanium.util.TiConvert;
 import org.mozilla.javascript.Scriptable;
 
+import ti.modules.titanium.BufferProxy;
 import ti.modules.titanium.TitaniumModule;
 
 @Kroll.module(parentModule=TitaniumModule.class)
@@ -49,15 +55,15 @@ public class CodecModule extends KrollModule
 		if (!args.containsKey(TiC.PROPERTY_DEST)) {
 			throw new IllegalArgumentException("dest was not specified for encodeNumber");
 		}
-		if (!args.containsKey(TiC.PROPERTY_DATA)) {
-			throw new IllegalArgumentException("data was not specified for encodeNumber");
+		if (!args.containsKey(TiC.PROPERTY_SOURCE)) {
+			throw new IllegalArgumentException("src was not specified for encodeNumber");
 		}
 		if (!args.containsKey(TiC.PROPERTY_TYPE)) {
 			throw new IllegalArgumentException("type was not specified for encodeNumber");
 		}
 
 		BufferProxy dest = (BufferProxy) args.get(TiC.PROPERTY_DEST);
-		Double data = (Double) args.get(TiC.PROPERTY_DATA);
+		Double src = (Double) args.get(TiC.PROPERTY_SOURCE);
 		String type = TiConvert.toString(args, TiC.PROPERTY_TYPE);
 		int byteOrder = getByteOrder(args.get(TiC.PROPERTY_BYTE_ORDER));
 
@@ -67,12 +73,12 @@ public class CodecModule extends KrollModule
 		}
 
 		byte buffer[] = dest.getBuffer();
-		return encodeNumber(data, type, buffer, position, byteOrder);
+		return encodeNumber(src, type, buffer, position, byteOrder);
 	}
 
-	public static int encodeNumber(Number data, String type, byte dest[], int position, int byteOrder)
+	public static int encodeNumber(Number src, String type, byte dest[], int position, int byteOrder)
 	{
-		long l = data.longValue();
+		long l = src.longValue();
 		if (type.equals(TYPE_BYTE)) {
 			dest[position] = (byte)(l & 0xFF);
 			return position+1;
@@ -85,7 +91,7 @@ public class CodecModule extends KrollModule
 			return position+2;
 		} else if (type.equals(TYPE_INT) || type.equals(TYPE_FLOAT)) {
 			if (type.equals(TYPE_FLOAT)) {
-				l = Float.floatToIntBits(data.floatValue());
+				l = Float.floatToIntBits(src.floatValue());
 			}
 			int bits = byteOrder == BIG_ENDIAN ? 24 : 0;
 			int step = byteOrder == BIG_ENDIAN ? -8 : 8;
@@ -95,7 +101,7 @@ public class CodecModule extends KrollModule
 			return position+4;
 		} else if (type.equals(TYPE_LONG) || type.equals(TYPE_DOUBLE)) {
 			if (type.equals(TYPE_DOUBLE)) {
-				l = Double.doubleToLongBits(data.doubleValue());
+				l = Double.doubleToLongBits(src.doubleValue());
 			}
 			int bits = byteOrder == BIG_ENDIAN ? 56 : 0;
 			int step = byteOrder == BIG_ENDIAN ? -8 : 8;
@@ -110,14 +116,14 @@ public class CodecModule extends KrollModule
 	@Kroll.method
 	public Object decodeNumber(KrollDict args)
 	{
-		if (!args.containsKey(TiC.PROPERTY_SRC)) {
+		if (!args.containsKey(TiC.PROPERTY_SOURCE)) {
 			throw new IllegalArgumentException("src was not specified for encodeNumber");
 		}
 		if (!args.containsKey(TiC.PROPERTY_TYPE)) {
 			throw new IllegalArgumentException("type was not specified for encodeNumber");
 		}
 
-		BufferProxy buffer = (BufferProxy) args.get(TiC.PROPERTY_SRC);
+		BufferProxy buffer = (BufferProxy) args.get(TiC.PROPERTY_SOURCE);
 		String type = (String) args.get(TiC.PROPERTY_TYPE);
 		int byteOrder = getByteOrder(args.get(TiC.PROPERTY_BYTE_ORDER));
 
@@ -131,25 +137,21 @@ public class CodecModule extends KrollModule
 			return src[position];
 		}
 		else if (type.equals(TYPE_SHORT)) {
+			short s1 = (short) (src[position] & 0xFF);
+			short s2 = (short) (src[position + 1] & 0xFF);
 			switch (byteOrder) {
 				case BIG_ENDIAN:
-					return (src[position+1] << 8 | src[position]);
+					return ((s1 << 8) + s2);
 				case LITTLE_ENDIAN:
-					return (src[position] << 8 | src[position+1]);
+					return ((s2 << 8) + s1);
 			}
 		} else if (type.equals(TYPE_INT) || type.equals(TYPE_FLOAT)) {
 			int bits = 0;
-			switch (byteOrder) {
-				case BIG_ENDIAN:
-					bits = (src[position+3] << 24) |
-						(src[position+2] << 16) |
-						(src[position+1] << 8) |
-						src[position];
-				case LITTLE_ENDIAN:
-					bits = (src[position] << 24) |
-						(src[position+1] << 16) |
-						(src[position+2] << 8) |
-						src[position+3];
+			int shiftBits = byteOrder == BIG_ENDIAN ? 24 : 0;
+			int step = byteOrder == BIG_ENDIAN ? -8 : 8;
+			for (int i = 0; i < 4; i++, shiftBits += step) {
+				int part = (int) (src[position + i] & 0xFF);
+				bits += (part << shiftBits);
 			}
 			if (type.equals(TYPE_FLOAT)) {
 				return Float.intBitsToFloat(bits);
@@ -157,27 +159,11 @@ public class CodecModule extends KrollModule
 			return bits;
 		} else if (type.equals(TYPE_LONG) || type.equals(TYPE_DOUBLE)) {
 			long bits = 0;
-			switch (byteOrder) {
-				case BIG_ENDIAN: {
-					bits = (src[position+7] << 56) |
-						(src[position+6] << 48) |
-						(src[position+5] << 40) |
-						(src[position+4] << 32) | 
-						(src[position+3] << 24) | 
-						(src[position+2] << 16) |
-						(src[position+1] << 8) |
-						src[position];
-				}
-				case LITTLE_ENDIAN: {
-					bits = (src[position] << 56) |
-						(src[position+1] << 48) |
-						(src[position+2] << 40) |
-						(src[position+3] << 32) | 
-						(src[position+4] << 24) | 
-						(src[position+5] << 16) |
-						(src[position+6] << 8) |
-						src[position+7];
-				}
+			int shiftBits = byteOrder == BIG_ENDIAN ? 56 : 0;
+			int step = byteOrder == BIG_ENDIAN ? -8 : 8;
+			for (int i = 0; i < 8; i++, shiftBits += step) {
+				long part = (long) (src[position + i] & 0xFF);
+				bits += (part << shiftBits);
 			}
 			if (type.equals(TYPE_DOUBLE)) {
 				return Double.longBitsToDouble(bits);
@@ -193,24 +179,24 @@ public class CodecModule extends KrollModule
 		if (!args.containsKey(TiC.PROPERTY_DEST)) {
 			throw new IllegalArgumentException("dest was not specified for encodeString");
 		}
-		if (!args.containsKey(TiC.PROPERTY_SRC) || args.get(TiC.PROPERTY_SRC) == null) {
+		if (!args.containsKey(TiC.PROPERTY_SOURCE) || args.get(TiC.PROPERTY_SOURCE) == null) {
 			throw new IllegalArgumentException("src was not specified for encodeString");
 		}
 
 		BufferProxy dest = (BufferProxy) args.get(TiC.PROPERTY_DEST);
-		String src = (String) args.get(TiC.PROPERTY_SRC);
+		String src = (String) args.get(TiC.PROPERTY_SOURCE);
 
 		int destPosition = 0;
 		if (args.containsKey(TiC.PROPERTY_DEST_POSITION)) {
 			destPosition = TiConvert.toInt(args, TiC.PROPERTY_DEST_POSITION);
 		}
 		int srcPosition = 0;
-		if (args.containsKey(TiC.PROPERTY_SRC_POSITION)) {
-			srcPosition = TiConvert.toInt(args, TiC.PROPERTY_SRC_POSITION);
+		if (args.containsKey(TiC.PROPERTY_SOURCE_POSITION)) {
+			srcPosition = TiConvert.toInt(args, TiC.PROPERTY_SOURCE_POSITION);
 		}
 		int srcLength = src.length();
-		if (args.containsKey(TiC.PROPERTY_SRC_LENGTH)) {
-			srcLength = TiConvert.toInt(args, TiC.PROPERTY_SRC_LENGTH);
+		if (args.containsKey(TiC.PROPERTY_SOURCE_LENGTH)) {
+			srcLength = TiConvert.toInt(args, TiC.PROPERTY_SOURCE_LENGTH);
 		}
 
 		String charset = validateCharset(args);
@@ -235,11 +221,11 @@ public class CodecModule extends KrollModule
 	@Kroll.method
 	public String decodeString(KrollDict args)
 	{
-		if (!args.containsKey(TiC.PROPERTY_SRC) || args.get(TiC.PROPERTY_SRC) == null) {
+		if (!args.containsKey(TiC.PROPERTY_SOURCE) || args.get(TiC.PROPERTY_SOURCE) == null) {
 			throw new IllegalArgumentException("src was not specified for decodeString");
 		}
 
-		BufferProxy src = (BufferProxy) args.get(TiC.PROPERTY_SRC);
+		BufferProxy src = (BufferProxy) args.get(TiC.PROPERTY_SOURCE);
 		byte buffer[] = src.getBuffer();
 
 		int position = 0;

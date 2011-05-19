@@ -10,27 +10,28 @@ import java.io.IOException;
 import java.text.DateFormat;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Stack;
-import java.util.Timer;
-import java.util.TimerTask;
 
 import org.appcelerator.kroll.KrollInvocation;
 import org.appcelerator.kroll.KrollModule;
 import org.appcelerator.kroll.KrollModuleInfo;
 import org.appcelerator.kroll.KrollProxy;
 import org.appcelerator.kroll.annotations.Kroll;
+import org.appcelerator.titanium.TiBaseActivity;
 import org.appcelerator.titanium.TiBlob;
 import org.appcelerator.titanium.TiContext;
+import org.appcelerator.titanium.TiLaunchActivity;
 import org.appcelerator.titanium.io.TiBaseFile;
 import org.appcelerator.titanium.io.TiFileFactory;
 import org.appcelerator.titanium.kroll.KrollCallback;
 import org.appcelerator.titanium.kroll.KrollContext;
+import org.appcelerator.titanium.proxy.TiWindowProxy;
 import org.appcelerator.titanium.util.Log;
+import org.appcelerator.titanium.util.TiConfig;
 import org.appcelerator.titanium.util.TiConvert;
 import org.appcelerator.titanium.util.TiPlatformHelper;
 import org.appcelerator.titanium.util.TiRHelper;
@@ -41,12 +42,12 @@ import org.mozilla.javascript.Scriptable;
 import android.app.Activity;
 import android.app.Service;
 import android.os.Handler;
-import android.os.Message;
 
 @Kroll.module @Kroll.topLevel({"Ti", "Titanium"})
 public class TitaniumModule extends KrollModule implements TiContext.OnLifecycleEvent, TiContext.OnServiceLifecycleEvent
 {
 	private static final String LCAT = "TitaniumModule";
+	private static final boolean DBG = TiConfig.LOGD;
 
 	private Stack<String> basePath;
 	private Map<String, NumberFormat> numberFormats = java.util.Collections.synchronizedMap(
@@ -124,7 +125,7 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 		}
 	}
 
-	private HashMap<Integer, Timer> timers = new HashMap<Integer, Timer>();
+	private HashMap<Thread, HashMap<Integer, Timer>> timers = new HashMap<Thread, HashMap<Integer, Timer>>();
 	private int currentTimerId;
 
 	protected class Timer implements Runnable
@@ -181,7 +182,13 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 			Handler handler = context.getMessageQueue().getHandler();
 
 			Timer timer = new Timer(timerId, handler, callback, timeout, args, interval);
-			timers.put(timerId, timer);
+			Thread thread = handler.getLooper().getThread();
+			HashMap<Integer, Timer> threadTimers = timers.get(thread);
+			if (threadTimers == null) {
+				threadTimers = new HashMap<Integer, Timer>();
+				timers.put(thread, threadTimers);
+			}
+			threadTimers.put(timerId, timer);
 			timer.schedule();
 			return timerId;
 		}
@@ -198,9 +205,13 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 	@Kroll.method @Kroll.topLevel
 	public void clearTimeout(int timerId)
 	{
-		if (timers.containsKey(timerId)) {
-			Timer timer = timers.remove(timerId);
-			timer.cancel();
+		for (Thread thread : timers.keySet()) {
+			HashMap<Integer, Timer> threadTimers = timers.get(thread);
+			if (threadTimers.containsKey(timerId)) {
+				Timer timer = threadTimers.remove(timerId);
+				timer.cancel();
+				break;
+			}
 		}
 	}
 
@@ -226,12 +237,34 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 			Log.w(LCAT, "alert() called inside service -- no attempt will be made to display it to user interface.");
 			return;
 		}
-		TiUIHelper.doOkDialog(invocation.getTiContext().getActivity(), "Alert", msg, null);
+		TiUIHelper.doOkDialog("Alert", msg, null);
 	}
 
-	public void cancelTimers()
+	public void cancelTimers(TiBaseActivity activity)
 	{
-		Iterator<Timer> timerIter = timers.values().iterator();
+		TiWindowProxy window = activity.getWindowProxy();
+		Thread thread = null;
+		if (window != null) {
+			thread = getKrollBridge().getKrollContext().getThread();
+		} else {
+			if (activity instanceof TiLaunchActivity) {
+				TiLaunchActivity launchActivity = (TiLaunchActivity) activity;
+				thread = launchActivity.getTiContext().getKrollContext().getThread();
+			}
+		}
+		if (thread != null) {
+			cancelTimers(thread);
+		} else {
+			Log.w(LCAT, "Tried cancelling timers for an activity with no associated JS thread: " + activity);
+		}
+	}
+
+	public void cancelTimers(Thread thread)
+	{
+		HashMap<Integer, Timer> threadTimers = timers.get(thread);
+		if (threadTimers == null) return;
+
+		Iterator<Timer> timerIter = threadTimers.values().iterator();
 		while (timerIter.hasNext()) {
 			Timer timer = timerIter.next();
 			if (timer != null) {
@@ -239,9 +272,9 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 				timerIter.remove();
 			}
 		}
-		timers.clear();
+		threadTimers.clear();
 	}
-	
+
 	@Kroll.method @Kroll.topLevel("String.format")
 	public String stringFormat(String format, Object args[])
 	{
@@ -260,7 +293,7 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 			return null;
 		}
 	}
-	
+
 	@Kroll.method @Kroll.topLevel("String.formatDate")
 	public String stringFormatDate(Date date, @Kroll.argument(optional=true) String format)
 	{
@@ -309,7 +342,7 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 			locale = TiConvert.toString(args[1]);
 			pattern = TiConvert.toString(args[2]);
 		}
-		
+
 		String key = (locale == null ? "" : locale ) + " keysep " + (pattern == null ? "": pattern);
 		
 		NumberFormat format;
@@ -327,33 +360,46 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 			}
 			numberFormats.put(key, format);
 		}
-		
+
 		return format.format((Number)args[0]);
 	}
-	
+
 	@Kroll.method @Kroll.topLevel("L")
 	public String localize(KrollInvocation invocation, Object args[])
 	{
 		String key = (String) args[0];
+		String defaultValue = args.length > 1 ? (String) args[1] : null;
 		try {
-			return invocation.getTiContext().getAndroidContext().getString(TiRHelper.getResource("string." + key));
+			int resid = TiRHelper.getResource("string." + key);
+			if (resid != 0) {
+				return invocation.getTiContext().getAndroidContext().getString(resid);
+			} else {
+				return defaultValue;
+			}
 		}
 		catch (TiRHelper.ResourceNotFoundException e) {
-			return args.length > 1 ? (String) args[1] : null;
+			if (DBG) {
+				Log.d(LCAT, "Resource string with key '" + key + "' not found.  Returning default value.");
+			}
+			return defaultValue;
+		}
+		catch (Exception e) {
+			Log.e(LCAT, "Exception trying to localize string '" + key + "': ", e);
+			return defaultValue;
 		}
 	}
-	
+
 	protected KrollModule requireNativeModule(TiContext context, String path) {
 		Log.d(LCAT, "Attempting to include native module: " + path);
 		KrollModuleInfo info = KrollModule.getModuleInfo(path);
 		if (info == null) return null;
-		
+
 		return context.getTiApp().requireModule(context, info);
 	}
-	
+
 	@Kroll.method @Kroll.topLevel
 	public KrollProxy require(KrollInvocation invocation, String path) {
-		
+
 		// 1. look for a TiPlus module first
 		// 2. then look for a cached module
 		// 3. then attempt to load from resources
@@ -364,7 +410,7 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 			Log.d(LCAT, "Succesfully loaded module: " + info.getName() + "/" + info.getVersion());
 			return module;
 		}
-		
+
 		// NOTE: commonjs modules load absolute to root in Titanium
 		String fileUrl = "app://"+path+".js";
 		TiBaseFile tbf = TiFileFactory.createTitaniumFile(ctx, new String[]{ fileUrl }, false);
@@ -377,7 +423,7 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 					Log.e(LCAT, "Couldn't read required file: " + fileUrl);
 					return null;
 				}
-				
+
 				// create the common js exporter
 				KrollProxy proxy = new KrollProxy(ctx);
 				StringBuilder buf = new StringBuilder();
@@ -408,27 +454,30 @@ public class TitaniumModule extends KrollModule implements TiContext.OnLifecycle
 				return null;
 			}
 		}
-		
+
 		//the spec says we are required to throw an exception
 		Context.reportError("couldn't find module: "+path);
 		return null;
 	}
-	
+
 	@Override
 	public void onDestroy(Activity activity) {
-		cancelTimers();
+		if (activity instanceof TiBaseActivity) {
+			cancelTimers((TiBaseActivity) activity);
+		}
 		super.onDestroy(activity);
 	}
-	
+
 	@Override
 	public void onStop(Activity activity) {
-		cancelTimers();
+		if (activity instanceof TiBaseActivity) {
+			cancelTimers((TiBaseActivity) activity);
+		}
 		super.onStop(activity);
 	}
 
 	@Override
 	public void onDestroy(Service service)
 	{
-		cancelTimers();
 	}
 }
