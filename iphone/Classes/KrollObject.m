@@ -338,6 +338,11 @@ TiValueRef ConvertIdTiValue(KrollContext *context, id obj)
 		{
 			if (![ourBridge usesProxy:obj])
 			{
+				if (![context isKJSThread])
+				{
+					NSLog(@"[WARN] Creating %@ in a different context than the calling function.",obj);
+					ourBridge = [KrollBridge krollBridgeForThreadName:[[NSThread currentThread] name]];
+				}
 				return [[ourBridge registerProxy:obj] jsobject];
 			}
 			KrollObject * objKrollObject = [ourBridge krollObjectForProxy:obj];
@@ -491,6 +496,10 @@ TiValueRef KrollGetProperty(TiContextRef jsContext, TiObjectRef object, TiString
 				if ((cachedObject != NULL) && (cachedObject != remoteFunction))
 				{
 					[o forgetObjectForTiString:prop context:jsContext];	//Clean up the old property.
+				}
+				if (remoteFunction != NULL)
+				{
+					[o noteObject:remoteFunction forTiString:prop context:jsContext];
 				}
 				return remoteFunction;
 			}
@@ -1459,9 +1468,8 @@ bool KrollHasInstance(TiContextRef ctx, TiObjectRef constructor, TiValueRef poss
 		TiValueRef currentCallback = TiObjectGetPropertyAtIndex(jsContext, jsCallbackArray, currentCallbackIndex, NULL);
 		if (currentCallback == callbackFunction)
 		{
-			TiStringRef propertyName = TiStringCreateWithCFString((CFStringRef) [NSString stringWithFormat:@"%d",currentCallbackIndex]);
-			TiObjectDeleteProperty(jsContext, jsCallbackArray, propertyName, NULL);
-			TiStringRelease(propertyName);
+			TiValueRef undefined = TiValueMakeUndefined(jsContext);
+			TiObjectSetPropertyAtIndex(jsContext, jsCallbackArray, currentCallbackIndex, undefined, NULL);
 		}
 	}
 }
@@ -1507,6 +1515,11 @@ bool KrollHasInstance(TiContextRef ctx, TiObjectRef constructor, TiValueRef poss
 	for (int currentCallbackIndex=0; currentCallbackIndex<arrayLength; currentCallbackIndex++)
 	{
 		TiValueRef currentCallback = TiObjectGetPropertyAtIndex(jsContext, jsCallbackArray, currentCallbackIndex, NULL);
+		currentCallback = TiValueToObject(jsContext, currentCallback, NULL);
+		if ((currentCallback == NULL) || !TiObjectIsFunction(jsContext,currentCallback))
+		{
+			continue;
+		}
 		TiValueRef exception = NULL;
 		TiObjectCallAsFunction(jsContext, currentCallback, [thisObject jsobject], 1, &jsEventData,&exception);
 		if (exception!=NULL)
