@@ -812,8 +812,8 @@ def main(args):
 				contents="TI_VERSION=%s\n"% sdk_version
 				contents+="TI_SDK_DIR=%s\n" % template_dir.replace(sdk_version,'$(TI_VERSION)')
 				contents+="TI_APPID=%s\n" % appid
-				contents+="OTHER_LDFLAGS[sdk=iphoneos4*]=$(inherited) -weak_framework iAd\n"
-				contents+="OTHER_LDFLAGS[sdk=iphonesimulator4*]=$(inherited) -weak_framework iAd\n"
+				contents+="OTHER_LDFLAGS[sdk=iphoneos*]=$(inherited) -weak_framework iAd\n"
+				contents+="OTHER_LDFLAGS[sdk=iphonesimulator*]=$(inherited) -weak_framework iAd\n"
 				contents+="#include \"module\"\n"
 				xcconfig = open(project_xcconfig,'w+')
 				xccontents = xcconfig.read()
@@ -884,6 +884,10 @@ def main(args):
 			# compile debugger file
 			debug_plist = os.path.join(iphone_dir,'Resources','debugger.plist')
 			write_debugger_plist(debug_plist)
+			# Every time the debugger changes, we need to relink so that the new
+			# host/port gets picked up
+			if debughost:
+				force_xcode = True
 
 			if command!='simulator':
 				# compile plist into binary format so it's faster to load
@@ -1127,7 +1131,6 @@ def main(args):
 
 				# this is a simulator build
 				if command == 'simulator':
-
 					debugstr = ''
 					if debughost:
 						debugstr = 'DEBUGGER_ENABLED=1'
