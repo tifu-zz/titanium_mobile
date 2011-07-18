@@ -1,6 +1,6 @@
 /**
  * Appcelerator Titanium Mobile
- * Copyright (c) 2009-2010 by Appcelerator, Inc. All Rights Reserved.
+ * Copyright (c) 2009-2011 by Appcelerator, Inc. All Rights Reserved.
  * Licensed under the terms of the Apache Public License
  * Please see the LICENSE included with this distribution for details.
  */
@@ -36,6 +36,7 @@ import org.appcelerator.titanium.util.TiConfig;
 import org.appcelerator.titanium.util.TiFileHelper;
 import org.appcelerator.titanium.util.TiPlatformHelper;
 import org.appcelerator.titanium.util.TiResponseCache;
+import org.appcelerator.titanium.util.TiTempFileHelper;
 import org.appcelerator.titanium.view.ITiWindowHandler;
 
 import android.app.Activity;
@@ -85,6 +86,7 @@ public abstract class TiApplication extends Application
 	private String buildVersion = "", buildTimestamp = "", buildHash = "";
 	protected ArrayList<KrollModule> modules = new ArrayList<KrollModule>();
 	protected TiDeployData deployData;
+	protected TiTempFileHelper tempFileHelper;
 
 	public TiApplication() {
 		Log.checkpoint(LCAT, "checkpoint, app created.");
@@ -209,7 +211,7 @@ public abstract class TiApplication extends Application
 		if (getDeployType().equals(DEPLOY_TYPE_DEVELOPMENT)) {
 			deployData = new TiDeployData();
 		}
-		//systemProperties.setString("ti.version", buildVersion); // was always setting "1.0"
+		tempFileHelper = new TiTempFileHelper(this);
 	}
 
 	public void postAppInfo() {
@@ -273,6 +275,7 @@ public abstract class TiApplication extends Application
 			needsStartEvent = false;
 			Log.i(LCAT, "Analytics have been disabled");
 		}
+		tempFileHelper.scheduleCleanTempDir();
 	}
 
 	public TiRootActivity getRootActivity() {
@@ -566,5 +569,10 @@ public abstract class TiApplication extends Application
 		if (getRootActivity() != null) {
 			getRootActivity().restartActivity(delay);
 		}
+	}
+
+	public TiTempFileHelper getTempFileHelper()
+	{
+		return tempFileHelper;
 	}
 }
