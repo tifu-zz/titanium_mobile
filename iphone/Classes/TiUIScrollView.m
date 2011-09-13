@@ -201,6 +201,12 @@
 	[[self scrollView] setCanCancelContentTouches:[TiUtils boolValue:args def:YES]];
 }
 
+//! Tifu
+-(void)setDecelerationRate_:(id)value
+{
+	[[self scrollView] setDecelerationRate:[TiUtils floatValue:value]];
+}
+
 #pragma mark scrollView delegate stuff
 
 
