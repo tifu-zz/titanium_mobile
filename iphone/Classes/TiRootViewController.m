@@ -5,6 +5,7 @@
  * Please see the LICENSE included with this distribution for details.
  */
 
+
 #import "TiRootViewController.h"
 #import "TiUtils.h"
 #import "TiViewProxy.h"
@@ -48,7 +49,7 @@
 {	
 	UIImage* image;
 	
-	if([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad)
+	if([TiUtils isIPad])
 	{
 		*imageOrientation = orientation;
 		*imageIdiom = UIUserInterfaceIdiomPad;
@@ -109,7 +110,7 @@
 	}
 	UIDeviceOrientation imageOrientation;
 	UIUserInterfaceIdiom imageIdiom;
-	UIUserInterfaceIdiom deviceIdiom = [[UIDevice currentDevice] userInterfaceIdiom];
+	UIUserInterfaceIdiom deviceIdiom = UI_USER_INTERFACE_IDIOM();
 /*
  *	This code could stand for some refinement, but it is rarely called during
  *	an application's lifetime and is meant to recreate the quirks and edge cases
@@ -121,7 +122,10 @@
 			(UIDeviceOrientation)newOrientation
 			resultingOrientation:&imageOrientation idiom:&imageIdiom];
 
-	CGFloat imageScale = [defaultImage scale];
+	CGFloat imageScale = 1.0;
+	if ([defaultImage respondsToSelector:@selector(scale)]) {
+		imageScale = [defaultImage scale];
+	}
 	CGRect newFrame = [[self view] bounds];
 	CGSize imageSize = [defaultImage size];
 	UIViewContentMode contentMode = UIViewContentModeScaleToFill;
@@ -359,7 +363,8 @@
 
 	for (TiWindowProxy * thisProxy in windowProxies)
 	{
-        if ([thisProxy allowsOrientation:toInterfaceOrientation]) {
+		TiOrientationFlags windowFlags = [thisProxy orientationFlags];
+        if (TI_ORIENTATION_ALLOWED(windowFlags, toInterfaceOrientation) || (windowFlags == TiOrientationNone)) {
             UIViewController * thisNavCon = [thisProxy navController];
             if (thisNavCon == nil)
             {
@@ -390,10 +395,8 @@
 
 -(CGRect)resizeView
 {
-//	CGRect rect = [[UIScreen mainScreen] applicationFrame];
-//	VerboseLog(@"(%f,%f),(%fx%f)",rect.origin.x,rect.origin.y,rect.size.width,rect.size.height);
-//	[[self view] setFrame:rect];
-	//Because of the transition in landscape orientation, TiUtils can't be used here... SetFrame compensates for it.
+	CGRect rect = [[UIScreen mainScreen] applicationFrame];
+	[[self view] setFrame:rect];
 	return [[self view] bounds];
 }
 
