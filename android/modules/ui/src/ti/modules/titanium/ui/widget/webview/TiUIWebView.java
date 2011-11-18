@@ -62,13 +62,13 @@ public class TiUIWebView extends TiUIView {
 		webView.setVerticalScrollbarOverlay(true);
 
 		WebSettings settings = webView.getSettings();
-		settings.setBuiltInZoomControls(true);
+		settings.setBuiltInZoomControls(false); //!
 		settings.setUseWideViewPort(true);
 		settings.setJavaScriptEnabled(true);
 		settings.setSupportMultipleWindows(true);
 		settings.setJavaScriptCanOpenWindowsAutomatically(true);
-		settings.setSupportZoom(true);
-		settings.setLoadsImagesAutomatically(true);
+		settings.setSupportZoom(false); //!
+		settings.setLoadsImagesAutomatically(false); //!
 		settings.setLightTouchEnabled(true);
 
 		webView.setWebChromeClient(new TiWebChromeClient(this));
