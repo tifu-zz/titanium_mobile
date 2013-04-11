@@ -68,7 +68,7 @@ public class TiUIWebView extends TiUIView {
 		settings.setSupportMultipleWindows(true);
 		settings.setJavaScriptCanOpenWindowsAutomatically(true);
 		settings.setSupportZoom(false); //!
-		settings.setLoadsImagesAutomatically(false); //!
+		settings.setLoadsImagesAutomatically(true);
 		settings.setLightTouchEnabled(true);
 
 		webView.setWebChromeClient(new TiWebChromeClient(this));
